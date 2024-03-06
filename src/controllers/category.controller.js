@@ -65,14 +65,19 @@ exports.updateCategory = async (req, res) => {
     }
 };
 
-exports.getAllCategories = async (req, res) => {
+
+exports.getAllCategories= async (req,res)=>{
     try {
+
         const allCategories = await categoryModel.find();
         res.status(200).json({ status: 'SUCCESS', data: { allCategories } });
+
     } catch (error) {
         res.status(500).json({ status: 'ERROR', message: error.message, data: null });
     }
 };
+
+
 
 exports.searchCategory = async (req, res) => {
     try {
@@ -83,7 +88,7 @@ exports.searchCategory = async (req, res) => {
         }
 
         const searchResults = await categoryModel.find({
-            categoryName: { $regex: new RegExp(categoryName, 'i') },
+            categoryName: { $regex: new RegExp(categoryName, 'i') }
         });
 
         res.status(200).json({ status: 'SUCCESS', data: { searchResults } });
@@ -115,3 +120,5 @@ exports.deleteCategory = async (req, res) => {
         res.status(500).json({ status: 'ERROR', message: error.message, data: null });
     }
 };
+
+
