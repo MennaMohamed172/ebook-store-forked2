@@ -175,7 +175,7 @@ exports.createNewPassword = async (req, res) => {
         const { userId } = jwt.verify(req.params.token, process.env.RESET_SECRET);
         console.log(userId);
         const { password } = req.body;
-        const oldUser = await userModel.findById(userId);
+        const oldUser = await User.findById(userId);
         if (!oldUser || !userId) return res.status(404).json({ status: 'failed', message: 'Invalid link' });
         const hashedPassword = bcrypt.hashSync(password, Number(process.env.BCRYPT_SALT));
         oldUser.password = hashedPassword;
@@ -193,7 +193,7 @@ exports.verifyUser = async (req, res) => {
     try {
         const { token } = req.params;
         const { userId } = jwt.verify(token, process.env.JWT_SECRET);
-        const foundedUser = await userModel.findById(userId);
+        const foundedUser = await User.findById(userId);
         if (!foundedUser) return res.status(404).json({ status: 'failed', message: 'User not found!' });
         foundedUser.isVerfied = true;
         await foundedUser.save();
@@ -212,7 +212,7 @@ exports.verifyUser = async (req, res) => {
 exports.getDashboard = async (req, res) => {
     try {
         if (req.role != 'admin') return res.status(403).json({ status: 'failed', message: 'You are not authorized!' });
-        const users = await userModel.find();
+        const users = await User.find();
         res.status(200).json({
             status: 'success',
             message: 'hello from admin',
