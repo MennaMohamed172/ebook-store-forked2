@@ -1,3 +1,4 @@
+require('dotenv').config();
 const server = require('./index');
 const mongoose = require('mongoose');
 let db = process.env.DATABASE_URL;
