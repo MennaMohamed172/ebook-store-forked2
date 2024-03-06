@@ -1,8 +1,19 @@
 const express = require('express');
-const { signup } = require('../controllers/authController');
-const isAuthenticated = require('../middleware/isAuthenticated');
+const {
+    signup,
+    login,
+    forgetPassword,
+    PatchResetPassword,
+    getResetPassword,
+    verify,
+} = require('../controllers/authController');
 const userRouter = express.Router();
 
 userRouter.post('/signup', signup);
+userRouter.get('/verify/:token', verify);
+userRouter.post('/login', login);
+userRouter.post('/forget-password', forgetPassword);
+userRouter.get('/reset-password/:resetlink', getResetPassword);
+userRouter.patch('/reset-password', PatchResetPassword);
 
 module.exports = userRouter;

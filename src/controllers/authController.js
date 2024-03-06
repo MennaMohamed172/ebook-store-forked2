@@ -1,25 +1,33 @@
 const User = require('../models/userModel');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const sendeEmail = require('../services/sendEmail');
+const createToken = require('../utils/createToken');
+const verifyTemplate = require('../utils/verifyTemplate');
+const resetTemplate = require('../utils/resetTemplate');
 
 exports.signup = async (req, res) => {
     try {
-        // CHECK IF USER REGISTERED BEFORE
-        const { email, password } = req.body;
-        const foundedUser = await User.findOne({ email });
+        //1-) CHECK IF USER REGISTERED BEFORE
+        const { password } = req.body;
+        const foundedUser = await User.findOne({ email: req.body.email });
         if (foundedUser)
             return res.status(400).json({
                 status: 'failed',
                 message: 'User already registered',
             });
-        // HASHING PASSWORD, THEN SAVE IT IN DB
+        //2-) HASHING PASSWORD, THEN SAVE IT IN DB
         const hashedPassword = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT));
         const newUser = await User.create({ ...req.body, password: hashedPassword });
-        // VERIFY USER REGISTRATION THROUGH EMAIL
-        // let link = `https://shop-easy-backend.onrender.com/auth/verify/${token}`;
-        // sendeEmailFun(verifyTemplate, email, link, userName);
+        // 3-) SEND VERIFICATION STRING THROUGH EMAIL
+        const { _id, userName, email } = newUser;
+        const token = createToken(_id, process.env.JWT_EXPIRES_IN);
+        const verifyURL = `http://127.0.0.1:${process.env.PORT}/user/verify/${token}`;
+        sendeEmail(verifyTemplate, email, verifyURL, userName);
         res.status(201).json({
             status: 'success',
+            message: 'verification link have been sent to your email',
             data: {
                 newUser,
             },
@@ -31,29 +39,49 @@ exports.signup = async (req, res) => {
         });
     }
 };
+
+exports.verify = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const { id } = jwt.verify(token, process.env.JWT_SECRET);
+        const foundedUser = await User.findById(id);
+        if (!foundedUser)
+            return res.status(404).json({ status: 'fail', message: 'User not found!, verification failed' });
+        foundedUser.isVerfied = true;
+        await foundedUser.save();
+        res.status(200).json({
+            status: 'success',
+            message: 'User verified successfully',
+        });
+    } catch (err) {
+        res.status(500).json({
+            status: 'error',
+            err: err.message,
+        });
+    }
+};
+
 exports.login = async (req, res) => {
     try {
-        // 1-) check if user has registered before
+        // 1-) check if user has been registered
         const { email, password } = req.body;
         const registeredUser = await User.findOne({ email }).select('+password');
         if (!registeredUser)
-            return res.status(401).json({
-                status: 'failed',
-                message: 'Invalid email address, You  should register first',
+            return res.status(404).json({
+                status: 'fail',
+                message: 'User with given email not exist',
             });
-        // 2-) check if user verifies email address
+        // 2-) check if user has verified email
         if (!registeredUser.isVerfied)
-            return res
-                .status(400)
-                .json({ status: 'failed', message: 'You should verify your account before logging!' });
+            return res.status(401).json({ status: 'fail', message: 'You should verify your account before logging!' });
         // 3-) check if user account is deactivated
         if (registeredUser.isDeleted)
-            return res.status(401).json({ status: 'failed', message: 'Your account is Deleted temporarly!' });
+            return res.status(404).json({ status: 'fail', message: 'Your account is Deleted temporarly!' });
         // 4-) check if provided password is correct
         const passwordMatch = bcrypt.compareSync(password, registeredUser.password);
         if (!passwordMatch)
             return res.status(401).json({
-                status: 'failed',
+                status: 'fail',
                 message: 'You entered wrong password!',
             });
         // 5-) send token to user if logged successfully
@@ -69,7 +97,7 @@ exports.login = async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({
-            status: 'failed',
+            status: 'error',
             message: err.message,
         });
     }
@@ -77,19 +105,29 @@ exports.login = async (req, res) => {
 
 exports.forgetPassword = async (req, res) => {
     try {
-        const oldUser = await userModel.findOne({ email: req.body.email });
+        // 1- GET USER BY POSTED EMAIL
+        const oldUser = await User.findOne({ email: req.body.email });
         if (!oldUser) {
-            return res.status(401).json({
-                status: 'failed',
-                message: "User with given email doesn't exist",
+            return res.status(404).json({
+                status: 'fail',
+                message: 'User with given email not exist',
             });
         }
-        const token = jwt.sign({ userId: oldUser._id, email: oldUser.email }, process.env.RESET_SECRET, {
-            expiresIn: '10m',
+        // 2-GENERATE RESET RANDOM STRING
+        const resetLink = oldUser.creatResetRandomString();
+        await oldUser.save();
+        // 3-SEND RESET STRING THROUGH EMAIL
+        const { email, userName } = oldUser;
+        const resetURL = `http://127.0.0.1:${process.env.PORT}/user/reset-password/${resetLink}`;
+        sendeEmail(resetTemplate, email, resetURL, userName);
+
+        res.status(201).json({
+            status: 'success',
+            message: 'Check your mail to reset your password!',
+            data: {
+                oldUser,
+            },
         });
-        const resetLink = `https://shop-easy-backend.onrender.com/auth/reset/${token}`;
-        sendeEmailFun(resetTemplate, oldUser.email, resetLink, oldUser.userName);
-        res.status(201).json({ status: 'success', message: 'Check your mail to reset your password!' });
     } catch (err) {
         res.status(500).json({
             status: 'failed',
@@ -97,18 +135,36 @@ exports.forgetPassword = async (req, res) => {
         });
     }
 };
-exports.resetPassword = async (req, res) => {
+exports.getResetPassword = async (req, res) => {
     try {
-        const { token } = req.params;
-        const { userId } = jwt.verify(token, process.env.RESET_SECRET);
-        const oldUser = await userModel.findById(userId);
-        if (!oldUser) return res.status(404).json({ message: 'User not exist' });
-        const verify = jwt.verify(token, process.env.RESET_SECRET);
-        if (!verify) return res.status(400).json({ status: 'failed', message: 'Invalid link' });
+        const { resetLink } = req.params;
+        const hashedLink = crypto.createHash('sha256').update(resetLink).digest('hex');
+        const foundedUser = User.findOne({
+            passwordResetString: hashedLink,
+            passwordResetExpires: { $gt: Date.now() },
+        });
+        if (!foundedUser) return res.status(400).json({ message: 'Reset link is invalid or has been expired' });
         res.status(200).json({ status: 'success', message: 'Verified' });
     } catch (err) {
         res.status(500).json({
-            status: 'failed',
+            status: 'error',
+            err: err.message,
+        });
+    }
+};
+exports.PatchResetPassword = async (req, res) => {
+    try {
+        const { resetLink } = req.params;
+        const hashedLink = crypto.createHash('sha256').update(resetLink).digest('hex');
+        const foundedUser = User.findOne({
+            passwordResetString: hashedLink,
+            passwordResetExpires: { $gt: Date.now() },
+        });
+        if (!foundedUser) return res.status(400).json({ message: 'Reset link is invalid or has been expired' });
+        res.status(200).json({ status: 'success', message: 'Verified' });
+    } catch (err) {
+        res.status(500).json({
+            status: 'error',
             err: err.message,
         });
     }
